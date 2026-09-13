@@ -1,0 +1,262 @@
+% Блочная команда (\guaptasks, \guaplist, \guaptable, \guapeq, \guapsources)
+% читает строки под собой до пустой строки. Справка: README шаблона.
+\documentclass[a4paper,14pt]{extarticle}
+\usepackage{guap}
+
+\guapsetup{
+  department   = 41,
+  teacher-post = Старший преподаватель,
+  teacher      = В. В. Боженко,
+  type         = Отчет о лабораторной работе,  % прописными - автоматически
+  number       = 1,                            % пусто - без номера
+  title        = Предварительный анализ данных,
+  course       = Введение в анализ данных,
+  group        = 4414,
+  student      = Г. В. Моисеев,                % несколько: {А. А. Иванов, Б. Б. Петров}
+  date         = today,                        % today - сегодня; пусто - от руки
+% course-label = по дисциплине:,
+% year         = 2026,                         % по умолчанию текущий
+}
+
+\begin{document}
+
+\maketitle
+\guaptoc
+
+\guapintro
+
+Цель работы - осуществить предварительную обработку данных csv-файла, выявить и устранить проблемы в этих данных.
+
+\guaptasks
+загрузить набор данных с помощью pandas и выполнить его обзор
+найти и устранить проблемы в названиях столбцов, пропуски и дубликаты
+привести типы данных в соответствие с содержимым столбцов
+выполнить группировки и построить сводные таблицы по заданию варианта
+
+\section{Вариант задания}
+
+Номер в списке группы - 16. В методических указаниях 15 вариантов, поэтому номер взят по кругу и выполнены задания варианта 1.
+
+Набор данных drivers.csv содержит информацию о поездках в такси. Каждая строка описывает одну поездку, всего в файле 1099 поездок с 1 января по 23 декабря 2016 года. Столбцы набора данных приведены в~\tabref{columns}.
+
+\guaptable[columns]{Столбцы набора данных drivers.csv}
+Столбец | Содержание
+START\_DATE* | дата и время начала поездки
+END\_DATE* | дата и время окончания поездки
+CATEGORY* | категория поездки: Business (деловая) или Personal (личная)
+START* | место начала поездки
+STOP* | место окончания поездки
+MILES* | пройденное расстояние, мили
+PURPOSE* | цель поездки
+time | длительность поездки, минуты
+speed | средняя скорость, мили в час
+price | стоимость поездки
+
+Столбцов time, speed и price нет в описании варианта. Их содержание проверено по значениям: time совпадает с разницей между окончанием и началом поездки в минутах, speed равен MILES*, делённому на time и умноженному на 60.
+
+Задания варианта:
+\guapnum
+группировка по CATEGORY и количество поездок каждого типа (по цели маршрута)
+группировка по CATEGORY и количество поездок для каждой точки старта START; создать датафрейм, переименовать столбец с количеством в count, отсортировать по возрастанию count
+сводная таблица - среднее количество пройденных миль по каждой цели поездки (PURPOSEroute), отсортировать по убыванию MILES, округлить до двух знаков
+сводная таблица - среднее количество пройденных миль по каждой цели каждой категории (CATEGORY*) в столбцах и каждой точке старта START в строках, отсортировать по убыванию START, округлить с помощью round
+
+\section{Ход работы}
+
+Работа выполнена в Jupyter-ноутбуке ЛР1\_Моисеев\_16.ipynb. Ссылка на ноутбук: \url{https://github.com/Echways/IDA/tree/main/lab-1}.
+
+\subsection{Загрузка данных и обзор}
+
+Набор данных загружен методом read\_csv библиотеки pandas. Первые 20 строк, выведенные методом head, показаны на~\figref{head}.
+
+\guapimg[\textwidth]{head}{Первые 20 строк набора данных}
+
+Результат метода info приведён на~\figref{df_info}. В таблице 1099 строк и 10 столбцов. Пропуски есть только в PURPOSE*: заполнено 598 значений из 1099. Даты начала и окончания прочитаны как object, то есть как строки. Столбцы time и price имеют тип float64.
+
+\guapimg[0.47\textwidth]{df_info}{Общая информация о данных}
+
+Столбец speed получен делением расстояния на длительность, поэтому перед применением describe числовые столбцы проверены на бесконечные значения (\figref{inf_check}). Бесконечное значение в столбце не даёт посчитать среднее и стандартное отклонение.
+
+\guapimg[0.42\textwidth]{inf_check}{Количество бесконечных значений в числовых столбцах}
+
+Бесконечные значения есть только в speed, их четыре. Соответствующие поездки показаны на~\figref{zero_time}.
+
+\guapimg[\textwidth]{zero_time}{Поездки с бесконечной скоростью}
+
+У всех четырёх поездок время начала совпадает со временем окончания, time равен 0, и скорость получилась делением на ноль. Длительность у них записана с ошибкой: за 0 минут нельзя проехать 69,1 мили. Скорость для таких поездок не определена, поэтому значение inf заменено на NaN. Замену выполняет класс InfinityReplacer (\lstref{infinity}). Он наследует абстрактный класс Transformation с методом apply, который принимает датафрейм и возвращает новый. Остальные преобразования таблицы в ноутбуке оформлены так же.
+
+\begin{code}[Python, infinity]{Базовый класс преобразований и замена бесконечных значений}
+class Transformation(ABC):
+    @abstractmethod
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        ...
+
+
+class InfinityReplacer(Transformation):
+    def __init__(self, columns: list[str]):
+        self._columns = columns
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        replaced = {column: df[column].replace(np.inf, np.nan)
+                    for column in self._columns}
+        return df.assign(**replaced)
+\end{code}
+
+Статистика по числовым столбцам после замены, полученная методом describe, показана на~\figref{describe}.
+
+\guapimg[0.55\textwidth]{describe}{Статистика по числовым столбцам}
+
+Расстояние MILES* лежит в пределах от 0,5 до 310,3 миль. Среднее значение 10,8 заметно больше медианы 6,0: большинство поездок короткие, а несколько дальних поднимают среднее. Длительность time - от 0 до 336 минут, медиана 16 минут. Скорость speed посчитана по 1095 поездкам, медиана 21,3 мили в час. Максимальная скорость 906 миль в час нереальна: time округлён до минут, и у поездок длительностью 1–3 минуты скорость сильно завышена. Столбец speed в заданиях варианта не используется, поэтому эти значения не исправлялись. Стоимость price - от 337 до 25~569, медиана 1539.
+
+\subsection{Названия столбцов}
+
+Названия столбцов, выведенные через df.columns, показаны на~\figref{columns_before}. У семи столбцов в конце названия стоит символ «*», который приходится писать при каждом обращении к столбцу. Звёздочка удалена. Регистр оставлен прежним, чтобы названия совпадали с заданиями. Цель поездки в заданиях названа PURPOSEroute, в наборе данных ей соответствует столбец PURPOSE.
+
+\guapimg[0.8\textwidth]{columns_before}{Исходные названия столбцов}
+
+Переименование выполняет класс ColumnRenamer, приведённый в~\lstref{renamer}.
+
+\begin{code}[Python, renamer]{Переименование столбцов}
+class ColumnRenamer(Transformation):
+    def __init__(self, mapping: dict[str, str]):
+        self._mapping = mapping
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df.rename(columns=self._mapping)
+\end{code}
+
+Результат переименования показан на~\figref{columns_after}.
+
+\guapimg[0.81\textwidth]{columns_after}{Названия столбцов после переименования}
+
+\subsection{Пропуски}
+
+Проверки данных вынесены в класс DataInspector, который только читает таблицу: подсчёт пропусков, явных дубликатов и вывод уникальных значений столбца. Количество пропусков по столбцам показано на~\figref{missing_before}.
+
+\guapimg[0.42\textwidth]{missing_before}{Количество пропусков до обработки}
+
+Пропуски есть в двух столбцах. В PURPOSE пропущено 501 значение, это 46~\% строк. При удалении таких строк пропала бы почти половина поездок, хотя остальные столбцы в них заполнены. Цель поездки - категориальный признак, поэтому пропуски заменены значением «не определена», как в примере результата к заданию~1.
+
+В speed 4 пропуска - это поездки с нулевой длительностью, у которых inf был заменён на NaN. Подставить вместо скорости нечего, так как длительность у этих поездок тоже ошибочная. Строк всего четыре (0,4~\% данных), поэтому они удалены.
+
+Заполнение выполняет класс MissingValueFiller, удаление строк - класс MissingRowsDropper (\lstref{filler}). Результат показан на~\figref{missing_after}, после обработки в таблице осталось 1095 строк.
+
+\begin{code}[Python, filler]{Обработка пропусков}
+class MissingValueFiller(Transformation):
+    def __init__(self, column: str, value):
+        self._column = column
+        self._value = value
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(**{self._column: df[self._column].fillna(self._value)})
+
+
+class MissingRowsDropper(Transformation):
+    def __init__(self, columns: list[str]):
+        self._columns = columns
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df.dropna(subset=self._columns).reset_index(drop=True)
+\end{code}
+
+\guapimg[0.67\textwidth]{missing_after}{Количество пропусков после обработки}
+
+\subsection{Дубликаты}
+
+Количество явных дубликатов показано на~\figref{duplicates}. Полностью повторяющихся строк нет, удалять нечего.
+
+\guapimg[0.37\textwidth]{duplicates}{Количество явных дубликатов}
+
+Для поиска неявных дубликатов выведены уникальные значения категориальных столбцов CATEGORY и PURPOSE (\figref{unique}). Столбцы START и STOP по заданию можно не проверять.
+
+\guapimg[0.5\textwidth]{unique}{Уникальные значения CATEGORY и PURPOSE}
+
+В CATEGORY два значения, в PURPOSE - десять целей и «не определена». Разных написаний одного значения нет, неявных дубликатов нет.
+
+\subsection{Типы данных}
+
+Столбцы START\_DATE и END\_DATE хранят дату и время в формате \%Y-\%m-\%d \%H:\%M:\%S, их нужно перевести в datetime. Столбцы time и price переводятся в целый тип, если все значения в них целые. Проверка показана на~\figref{whole_check}.
+
+\guapimg[0.46\textwidth]{whole_check}{Проверка значений time и price на целочисленность}
+
+Преобразования выполняют классы DatetimeConverter и TypeConverter (\lstref{converters}). Типы после преобразования показаны на~\figref{types_after}.
+
+\begin{code}[Python, converters]{Преобразование типов}
+class DatetimeConverter(Transformation):
+    def __init__(self, columns: list[str], date_format: str):
+        self._columns = columns
+        self._format = date_format
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        converted = {column: pd.to_datetime(df[column], format=self._format)
+                     for column in self._columns}
+        return df.assign(**converted)
+
+
+class TypeConverter(Transformation):
+    def __init__(self, dtypes: dict[str, str]):
+        self._dtypes = dtypes
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df.astype(self._dtypes)
+\end{code}
+
+\guapimg[0.85\textwidth]{types_after}{Типы данных после преобразования}
+
+\subsection{Группировки и сводные таблицы}
+
+Задания варианта собраны в классе TripsAnalysis, приведённом в~\lstref{analysis}. Каждый метод возвращает результат одного задания.
+
+\begin{code}[Python, analysis]{Класс с заданиями варианта}
+class TripsAnalysis:
+    def __init__(self, trips: pd.DataFrame):
+        self._trips = trips
+
+    def purpose_counts_by_category(self) -> pd.Series:
+        return self._trips.groupby(['CATEGORY', 'PURPOSE'])['PURPOSE'].count()
+
+    def start_counts_by_category(self) -> pd.DataFrame:
+        counts = self._trips.groupby(['CATEGORY', 'START'])[['START']].count()
+        return counts.rename(columns={'START': 'count'}).sort_values('count')
+
+    def mean_miles_by_purpose(self) -> pd.DataFrame:
+        pivot = self._trips.pivot_table(index='PURPOSE', values='MILES',
+                                        aggfunc='mean')
+        return pivot.sort_values('MILES', ascending=False).round(2)
+
+    def mean_miles_by_start_and_purpose(self) -> pd.DataFrame:
+        pivot = self._trips.pivot_table(
+            index='START', columns=['CATEGORY', 'PURPOSE'], values='MILES',
+            aggfunc='mean'
+        )
+        return pivot.sort_index(ascending=False).round(2)
+\end{code}
+
+Результат задания 1 показан на~\figref{task1}. Деловых поездок 1018, личных - 77. У деловых поездок чаще всего указаны цели Meeting (178), Meal/Entertain (145) и Errand/Supplies (110), у 426 цель не указана. У личных поездок цель не указана в 71 случае из 77, у остальных это Moving (4), Commute (1) и Charity (\$) (1).
+
+\guapimg[0.45\textwidth]{task1}{Результат задания 1}
+
+Результат задания 2 показан на~\figref{task2}. В таблице 199 пар «категория - точка старта». Больше всего поездок начинается в Cary (198 деловых), затем идут Unknown Location (133) и Morrisville (79). Unknown Location - поездки, у которых место старта не записано. В начале таблицы находятся места, из которых была одна поездка.
+
+\guapimg[0.57\textwidth]{task2}{Результат задания 2}
+
+Результат задания 3 показан на~\figref{task3}. Наибольшее среднее расстояние у Commute - 180,2 мили, но оно посчитано по одной поездке. Среди целей с большим числом поездок самые длинные - Customer Visit (21,9 мили) и Meeting (15,59), самые короткие - Errand/Supplies (4,14) и Meal/Entertain (5,66).
+
+\guapimg[0.4\textwidth]{task3}{Результат задания 3}
+
+Результат задания 4 показан на~\figref{task4}. Значения округлены методом round до двух знаков, как в задании 3. Таблица имеет размер 174 × 12: 174 точки старта и 12 сочетаний категории и цели. Большая часть ячеек пустая, так как из большинства мест ездили с одной-двумя целями. Больше всего заполненных ячеек у мест, откуда ездили чаще всего: у Cary и Morrisville - 9 из 12, у Unknown Location - 8.
+
+\guapimg[\textwidth]{task4}{Результат задания 4}
+
+\guapconclusion
+
+В ходе работы выполнена предварительная обработка набора данных drivers.csv, содержащего 1099 поездок в такси за 2016 год: даты начала и окончания, категорию, места старта и финиша, расстояние, цель, длительность, скорость и стоимость поездки.
+
+При предобработке у четырёх поездок обнаружена нулевая длительность, из-за которой скорость стала бесконечной. Значения inf заменены на NaN, а сами строки удалены вместе с пропусками: восстановить длительность и скорость для них нельзя. Из названий семи столбцов удалён символ «*». Пропуски в цели поездки (501 значение, 46~\% строк) заменены на «не определена»: удаление строк привело бы к потере почти половины данных. Явных дубликатов нет, неявных в CATEGORY и PURPOSE также нет. Даты начала и окончания переведены в datetime, столбцы time и price - в int64. После обработки осталось 1095 поездок. Преобразования оформлены отдельными классами с общим интерфейсом, проверки данных и задания варианта - отдельными классами DataInspector и TripsAnalysis.
+
+Группировки показали, что 93~\% поездок деловые (1018 из 1095). Основные деловые цели - встречи, питание и мелкие поручения; у личных поездок цель почти всегда не указана. Большая часть поездок начинается в Cary, Morrisville и в неизвестном месте (Unknown Location). Сводные таблицы показали, что дальше всего ездят к клиентам (в среднем 21,9 мили) и на встречи (15,59 мили), ближе всего - по поручениям и на обед (4–6 миль). Среднее расстояние для Commute (180,2 мили) посчитано по одной поездке и не отражает типичную поездку с этой целью. Таблица средних расстояний по точкам старта получилась разреженной: из большинства мест ездили лишь с одной-двумя целями.
+
+\guapsources
+Учебно-методические указания к выполнению лабораторной работы №1 по дисциплине «Введение в анализ данных».
+
+\end{document}
