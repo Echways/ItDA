@@ -223,6 +223,7 @@ __marimo__/
 *.log
 *.fls
 *.fdb_latexmk
+build/
 
 # PDF
 *.pdf

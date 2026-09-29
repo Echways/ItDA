@@ -80,7 +80,7 @@ matplotlib: построить круговую диаграмму долей ц
 
 В лабораторной работе 1 скорость в заданиях не использовалась, и завышенные значения в ней не исправлялись: длительность TIME округлена до минут, и у поездок длительностью 1–3 минуты скорость получается слишком большой. В этой работе столбец SPEED участвует в анализе, поэтому найдены поездки со скоростью выше 100 миль в час, что для такси нереально (\figref{too_fast}).
 
-\suaiimg[0.73\textwidth]{too_fast}{Поездки со скоростью выше 100 миль в час}
+\suaiimg[0.75\textwidth]{too_fast}{Поездки со скоростью выше 100 миль в час}
 
 Таких поездок 15. Почти у всех длительность составляет 1–8 минут при расстоянии 6–33 мили, например 15,1 мили за 1 минуту. Длительность записана с ошибкой, а вместе с ней ошибочны скорость и стоимость, которая, как показано в разделе~\ref{sec:correlation}, вычисляется по длительности. Восстановить эти значения нельзя, поэтому 15 поездок удалены. Статистика после удаления показана на~\figref{describe_clean}.
 
@@ -113,14 +113,16 @@ n | количество значений
 Правило опирается на межквартильный размах, поэтому выбросы не влияют на ширину интервала. Гистограммы построены в обычной и в логарифмической шкале (\lstref{histograms}). Для логарифмической шкалы правило применено к логарифмам значений.
 
 \begin{code}[Python, histograms]{Построение гистограмм}
-for column, linear_ax, log_ax in zip(NUMERIC, *axes):
+for i, column in enumerate(NUMERIC):
     values = trips[column]
-    linear_bins = np.histogram_bin_edges(values, bins='fd')
-    log_bins = 10 ** np.histogram_bin_edges(np.log10(values), bins='fd')
 
-    linear_ax.hist(values, bins=linear_bins, linewidth=0)
-    log_ax.hist(values, bins=log_bins, linewidth=0)
-    log_ax.set_xscale('log')
+    bins = np.histogram_bin_edges(values, bins='fd')
+    axes[0, i].hist(values, bins=bins, linewidth=0)
+
+    log_bins = 10 ** np.histogram_bin_edges(np.log10(values),
+                                            bins='fd')
+    axes[1, i].hist(values, bins=log_bins, linewidth=0)
+    axes[1, i].set_xscale('log')
 \end{code}
 
 Полученные гистограммы показаны на~\figref{histograms}.
@@ -160,13 +162,12 @@ for column, linear_ax, log_ax in zip(NUMERIC, *axes):
 Код задания 1 приведён в~\lstref{task1}, результат — на~\figref{task1}.
 
 \begin{code}[Python, task1]{Задание 1}
-purpose_counts = (trips.groupby(['CATEGORY', 'PURPOSE'])
-                       .size()
-                       .reset_index(name='count')
-                       .query('count > 2'))
+trip_counts = trips.groupby(['CATEGORY', 'PURPOSE']).size()
+trip_counts = trip_counts.reset_index(name='count')
+trip_counts = trip_counts[trip_counts['count'] > 2]
 
 fig, ax = plt.subplots(figsize=(14, 6))
-sns.barplot(data=purpose_counts, x='PURPOSE', y='count',
+sns.barplot(data=trip_counts, x='PURPOSE', y='count',
             hue='CATEGORY', ax=ax)
 \end{code}
 
@@ -181,8 +182,8 @@ mean_miles = trips.pivot_table(index='PURPOSE', values='MILES',
                                aggfunc='mean')
 
 ax = mean_miles.plot(style='*', color='green', markersize=18,
-                     figsize=(14, 7), xticks=range(len(mean_miles)),
-                     rot=90)
+                     figsize=(14, 7), rot=90,
+                     xticks=range(len(mean_miles)))
 \end{code}
 
 \suaiimg[\textwidth]{task2}{Среднее число пройденных миль по целям поездки}
@@ -192,19 +193,20 @@ ax = mean_miles.plot(style='*', color='green', markersize=18,
 Код задания 3 приведён в~\lstref{task3}, результат — на~\figref{task3}.
 
 \begin{code}[Python, task3]{Задание 3}
-purpose_share = (trips['PURPOSE'].value_counts()
-                                 .loc[lambda counts: counts >= MIN_TRIPS]
-                                 .sort_index())
+trips_per_purpose = trips['PURPOSE'].value_counts()
+purpose_share = trips_per_purpose[trips_per_purpose >= 5]
+purpose_share = purpose_share.sort_index()
 
 plt.figure(figsize=(20, 10))
-plt.pie(purpose_share, labels=purpose_share.index, autopct='%1.1f%%',
-        textprops={'size': 'x-large'}, startangle=90)
+plt.pie(purpose_share, labels=purpose_share.index,
+        autopct='%1.1f%%', textprops={'size': 'x-large'},
+        startangle=90)
 plt.legend(fontsize=16, bbox_to_anchor=(1, 1))
 \end{code}
 
 \suaiimg[0.9\textwidth]{task3}{Распределение целей поездки}
 
-Из диаграммы убраны Moving, Airport/Travel, Charity (\$) и Commute — вместе 8 поездок. Почти половину диаграммы (45,3~\%) занимают поездки без цели. Среди известных целей чаще всего встречаются Meeting (16,6~\%), Meal/Entertain (13,5~\%) и Errand/Supplies (10,3~\%). На Customer Visit приходится 8,6~\%, на Temporary Site — 4,1~\%, на Between Offices — 1,6~\%.
+Цели расположены по алфавиту. Из диаграммы убраны Moving, Airport/Travel, Charity (\$) и Commute — вместе 8 поездок. Почти половину диаграммы (45,3~\%) занимают поездки без цели. Среди известных целей чаще всего встречаются Meeting (16,6~\%), Meal/Entertain (13,5~\%) и Errand/Supplies (10,3~\%). На Customer Visit приходится 8,6~\%, на Temporary Site — 4,1~\%, на Between Offices — 1,6~\%.
 
 \subsection{Hexagonal binning plot}
 
@@ -220,7 +222,7 @@ plt.legend(fontsize=16, bbox_to_anchor=(1, 1))
 
 \suaiimg[\textwidth]{boxplot_price}{Диаграмма размаха стоимости поездки}
 
-\suaiimg[0.67\textwidth]{price_quartiles}{Квартили и граница выбросов стоимости}
+\suaiimg[0.68\textwidth]{price_quartiles}{Квартили и граница выбросов стоимости}
 
 Половина поездок стоит от 1087 до 2437, медиана 1611 расположена ближе к левому краю ящика. Левый ус короткий и заканчивается на минимуме 412, выбросов снизу нет. Справа за границей 4462 лежат 59 выбросов (5,5~\% поездок), самые дорогие — две поездки около 25~000. Это не ошибки: 53 из 59 выбросов — поездки дальше 15 миль, а две самые дорогие поездки длились около 5,5 часа. Распределение стоимости сильно скошено вправо.
 
@@ -229,17 +231,16 @@ plt.legend(fontsize=16, bbox_to_anchor=(1, 1))
 По столбцу MILES добавлена категория дальности: короткая — до 5 миль, средняя — от 5 до 15 миль, дальняя — больше 15 миль (\lstref{distance}). Границы близки к медиане (6 миль) и 90-му процентилю (17 миль) расстояния.
 
 \begin{code}[Python, distance]{Категория дальности поездки}
-DISTANCE_BINS = [0, 5, 15, np.inf]
-DISTANCE_NAMES = ['короткая', 'средняя', 'дальняя']
-
-distance = pd.cut(trips['MILES'], bins=DISTANCE_BINS,
-                  labels=DISTANCE_NAMES)
-trips = trips.assign(DISTANCE_CATEGORY=distance)
+trips['DISTANCE_CATEGORY'] = pd.cut(
+    trips['MILES'],
+    bins=[0, 5, 15, np.inf],
+    labels=['короткая', 'средняя', 'дальняя'],
+)
 \end{code}
 
 Количество поездок в каждой категории показано на~\figref{distance_counts}. Коротких и средних поездок почти поровну (467 и 469), дальних — 144.
 
-\suaiimg[0.58\textwidth]{distance_counts}{Количество поездок по категориям дальности}
+\suaiimg[0.53\textwidth]{distance_counts}{Количество поездок по категориям дальности}
 
 Диаграммы размаха построены средствами seaborn для расстояния и, для сравнения, для стоимости (\figref{boxplot_distance}). Обе оси значений логарифмические.
 
